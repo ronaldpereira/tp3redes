@@ -1,2 +1,3 @@
-# tp3redes
-Pier to pier system using sockets and UDP (Python 3)
+# Pier to Pier System using UDP
+
+A pier to pier system using UDP to a key-value storage in Python 3.
