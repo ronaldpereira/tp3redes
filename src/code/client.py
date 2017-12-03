@@ -1,93 +1,120 @@
 import sys
-import struct
 import socket
 
 class ClientInfo:
-	def __init__(self, ip, port):
-		self.ip = ip
-		self.port = int(port)
+	def __init__(self):
+		self.ip, self.port = sys.argv[1].split(':')
+		self.port = int(self.port)
 		self.seqNum = 0
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Option to reuse the socket address to stop giving the error: Adress is already being used when running the program multiple times
 
 class Message:
-	def keyReq(client, message):
-		try:
-			datagram = (5).to_bytes(2, 'big')
-			datagram += (client.seqNum).to_bytes(4, 'big')
-			datagram += message[0:400].encode('ascii')
+	def sendKeyReq(client, message):
+		datagram = (5).to_bytes(2, 'big')
+		datagram += (client.seqNum).to_bytes(4, 'big')
+		datagram += message[0:400].encode('ascii')
 
-			print(datagram)
+		print(datagram)
 
-			client.sock.sendto(datagram, (client.ip, client.port))
-			client.seqNum += 1
+		client.sock.sendto(datagram, (client.ip, client.port))
 
-			client.sock.settimeout(4)
-
-			resp = client.sock.recvfrom(406) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
-
-		except socket.timeout:
-
+		responses = []
+		while 1:
 			try:
-				datagram = (5).to_bytes(2, 'big')
-				datagram += (client.seqNum).to_bytes(4, 'big')
-				datagram += message[0:400].encode('ascii')
-
-				print(datagram)
-
-				client.sock.sendto(datagram, (client.ip, client.port))
-				client.seqNum += 1
-
 				client.sock.settimeout(4)
 
-				resp = client.sock.recvfrom(406) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
+				responses.append(client.sock.recvfrom(406)) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
 
 			except socket.timeout:
-				print('Nenhuma resposta recebida.')
+				if len(responses) == 0:
+					client.seqNum += 1
+					datagram = (5).to_bytes(2, 'big')
+					datagram += (client.seqNum).to_bytes(4, 'big')
+					datagram += message[0:400].encode('ascii')
 
+					print(datagram)
 
-	def topoReq(client):
-		try:
+					client.sock.sendto(datagram, (client.ip, client.port))
+					client.seqNum += 1
+
+					while 1:
+						try:
+							client.sock.settimeout(4)
+
+							responses.append(client.sock.recvfrom(406)) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
+
+						except socket.timeout:
+							if len(responses) == 0:
+								print('Nenhuma resposta recebida.')
+								return
+
+							else:
+								Message.printResponses((client.seqNum).to_bytes(4, 'big'), responses)
+								return
+				else:
+					Message.printResponses((client.seqNum).to_bytes(4, 'big'), responses)
+					return
+
+	def sendTopoReq(client):
 			datagram = (6).to_bytes(2, 'big')
 			datagram += (client.seqNum).to_bytes(4, 'big')
 
 			print(datagram)
 
 			client.sock.sendto(datagram, (client.ip, client.port))
-			client.seqNum += 1
 
-			client.sock.settimeout(4)
 
 			responses = []
-			while not socket.timeout:
-				resp = client.sock.recvfrom(406) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
+			while 1:
+				try:
+					client.sock.settimeout(4)
 
-		except socket.timeout:
-
-			try:
-				datagram = (6).to_bytes(2, 'big')
-				datagram += (client.seqNum).to_bytes(4, 'big')
-
-				print(datagram)
-
-				client.sock.sendto(datagram, (client.ip, client.port))
-				client.seqNum += 1
-
-				client.sock.settimeout(4)
-
-				while not socket.timeout:
 					responses.append(client.sock.recvfrom(406)) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
 
-			except socket.timeout:
-				print('Nenhuma resposta recebida.')
+				except socket.timeout:
+					if len(responses) == 0:
+						client.seqNum += 1
+						datagram = (6).to_bytes(2, 'big')
+						datagram += (client.seqNum).to_bytes(4, 'big')
 
-		def checkMessageSeqNum(client, response):
-			return client.seqNum == response
+						print(datagram)
+
+						client.sock.sendto(datagram, (client.ip, client.port))
+						client.seqNum += 1
+
+						while 1:
+							try:
+								client.sock.settimeout(4)
+
+								responses.append(client.sock.recvfrom(406)) # 2 (message type size) + 4 (sequence number size) + 400 (info or key size)
+
+							except socket.timeout:
+								if len(responses) == 0:
+									print('Nenhuma resposta recebida.')
+									return
+
+								else:
+									Message.printResponses((client.seqNum).to_bytes(4, 'big'), responses)
+									return
+					else:
+						Message.printResponses((client.seqNum).to_bytes(4, 'big'), responses)
+						return
+
+	def printResponses(seqNum, responses):
+		print(responses)
+		for response in responses:
+			if response[0][2:6] == seqNum:
+				print(response[0][6:], sep='')
+				# print(response[14:], ' ', response[1], sep='')
+
+			else:
+				print('Mensagem incorreta recebida de ', response[1], sep='')
 
 
 ipAddress, portAddress = sys.argv[1].split(':')
 
-client = ClientInfo(ipAddress, portAddress)
+client = ClientInfo()
 
 print('IP:', client.ip, '\nPORT:', client.port)
 
@@ -95,12 +122,11 @@ while 1:
 	message = input('Insira um comando:\n> ')
 
 	if message[0].upper() == '?':
-		message = message[1:].replace(' ','')
-		message = message.replace('\t','')
-		Message.keyReq(client, message)
+		message = message[1:].replace(' ','').replace('\t','')
+		Message.sendKeyReq(client, message)
 
 	elif message[0].upper() == 'T':
-		Message.topoReq(client)
+		Message.sendTopoReq(client)
 
 	elif message[0].upper() == 'Q':
 		client.sock.close()
