@@ -47,7 +47,7 @@ class ServentInfo:
 		return True
 
 class Message:
-	def recvKeyReq(servent, recvMsg):
+	def recvKeyReq(servent, clientAddress, recvMsg):
 		keyFloodMsg = (7).to_bytes(2, 'big')
 		keyFloodMsg += (3).to_bytes(2, 'big')
 		keyFloodMsg += recvMsg[2:6]
@@ -55,19 +55,19 @@ class Message:
 		keyFloodMsg += servent.ipBinary[1]
 		keyFloodMsg += servent.ipBinary[2]
 		keyFloodMsg += servent.ipBinary[3]
-		keyFloodMsg += (servent.port).to_bytes(2, 'big')
+		keyFloodMsg += (clientAddress[1]).to_bytes(2, 'big')
 		keyFloodMsg += recvMsg[6:]
 
 		print(keyFloodMsg)
 
-		print(recvMsg[6:])
-		if recvMsg[6:].decode() in servent.keyDictionary:
-			Message.sendRespFromReq(servent, recvMsg)
-
 		if servent.checkMessageIsNew(keyFloodMsg):
+
+			if recvMsg[6:].decode() in servent.keyDictionary:
+				Message.sendRespFromKeyReq(servent, clientAddress, recvMsg)
+
 			Message.sendMessageToServentList(servent, keyFloodMsg)
 
-	def recvTopoReq(servent, recvMsg):
+	def recvTopoReq(servent, clientAddress, recvMsg):
 		topoFloodMsg = (8).to_bytes(2, 'big')
 		topoFloodMsg += (3).to_bytes(2, 'big')
 		topoFloodMsg += recvMsg[2:6]
@@ -75,7 +75,7 @@ class Message:
 		topoFloodMsg += servent.ipBinary[1]
 		topoFloodMsg += servent.ipBinary[2]
 		topoFloodMsg += servent.ipBinary[3]
-		topoFloodMsg += (servent.port).to_bytes(2, 'big')
+		topoFloodMsg += (clientAddress[1]).to_bytes(2, 'big')
 		topoFloodMsg += (servent.ip).encode('ascii')
 		topoFloodMsg += ':'.encode('ascii')
 		topoFloodMsg += (str(servent.port)).encode('ascii')
@@ -83,12 +83,12 @@ class Message:
 		print(topoFloodMsg)
 
 		if servent.checkMessageIsNew(topoFloodMsg):
+			Message.sendRespFromTopoReq(servent, clientAddress, recvMsg, topoFloodMsg)
 			Message.sendMessageToServentList(servent, topoFloodMsg)
 
 	def recvKeyFlood(servent, recvMsg):
-		if recvMsg[14:] in servent.keyDictionary:
-			print(recvMsg[14:])
-			Message.sendResp(servent, recvMsg)
+		if recvMsg[14:].decode() in servent.keyDictionary:
+			Message.sendRespFromKeyFlood(servent, recvMsg)
 
 		keyFloodMsg = Message.decrementTTL(recvMsg)
 
@@ -96,25 +96,69 @@ class Message:
 
 
 	def recvTopoFlood(servent, recvMsg):
-		pass
+		Message.sendRespFromTopoFlood(servent, recvMsg)
 
-	def sendMessageToServentList(servent, message):
-		for serv in servent.serventList:
-			servent.sock.sendto(message, (serv[0], serv[1]))
+		topoFloodMsg = Message.decrementTTL(recvMsg)
 
-	def sendRespFromReq(servent, recvMsg):
+		Message.sendMessageToServentList(servent, topoFloodMsg)
+
+	def sendRespFromKeyReq(servent, clientAddress, recvMsg):
 		newMessage = (9).to_bytes(2, 'big')
 		newMessage += recvMsg[2:6]
 		newMessage += servent.keyDictionary[recvMsg[6:].decode()].encode('ascii')
 
 		print(newMessage)
-		print((servent.ip, servent.port))
+		print(clientAddress)
 
-		servent.sock.sendto(newMessage, (servent.ip, servent.port))
+		servent.sock.sendto(newMessage, clientAddress)
+
+	def sendRespFromTopoReq(servent, clientAddress, recvMsg, topoFloodMsg):
+		newMessage = (9).to_bytes(2, 'big')
+		newMessage += recvMsg[2:6]
+		newMessage += topoFloodMsg[14:]
+
+		print(newMessage)
+		print(clientAddress)
+
+		servent.sock.sendto(newMessage, clientAddress)
+
+	def sendRespFromKeyFlood(servent, recvMsg):
+		clientAddress = Message.clientAddressConstructor(recvMsg)
+
+		newMessage = (9).to_bytes(2, 'big')
+		newMessage += recvMsg[4:8]
+		newMessage += servent.keyDictionary[recvMsg[14:].decode()].encode('ascii')
+
+		print(newMessage)
+
+		servent.sock.sendto(newMessage, clientAddress)
+
+	def sendRespFromTopoFlood(servent, recvMsg):
+		clientAddress = Message.clientAddressConstructor(recvMsg)
+
+		newMessage = (9).to_bytes(2, 'big')
+		newMessage += recvMsg[4:8]
+		newMessage += recvMsg[14:]
+		newMessage += ' '.encode('ascii')
+		newMessage += (servent.ip).encode('ascii')
+		newMessage += ':'.encode('ascii')
+		newMessage += (str(servent.port)).encode('ascii')
+
+		print(newMessage)
+
+		servent.sock.sendto(newMessage, clientAddress)
+
+	def sendMessageToServentList(servent, message):
+		for serv in servent.serventList:
+			servent.sock.sendto(message, (serv[0], serv[1]))
+
+	def clientAddressConstructor(message):
+		clientPort = int.from_bytes(message[12:14], 'big')
+
+		return ('127.0.0.1', clientPort)
 
 	def decrementTTL(message):
 		ttlValue = int.from_bytes(message[2:4], 'big')
-		print(ttlValue)
 		ttlValue -= 1
 		newMessage = message[0:2]
 		newMessage += ttlValue.to_bytes(2, 'big')
@@ -126,17 +170,17 @@ class Message:
 servent = ServentInfo()
 
 while 1:
-	recvMsg = servent.sock.recvfrom(414)[0] # 2 (message type size) + 2 (TTL size) + 4 (sequence number size) + 4 (IP origin size) + 2 (port origin size) + 400 (info or key size)
-	print(recvMsg)
+	recvMsg, clientAddress = servent.sock.recvfrom(414) # 2 (message type size) + 2 (TTL size) + 4 (sequence number size) + 4 (IP origin size) + 2 (port origin size) + 400 (info or key size)
+	print(recvMsg, clientAddress)
 
 	if recvMsg[0:2] == (5).to_bytes(2, 'big'):
-		Message.recvKeyReq(servent, recvMsg)
+		Message.recvKeyReq(servent, clientAddress, recvMsg)
 
 	elif recvMsg[0:2] == (6).to_bytes(2, 'big'):
-		Message.recvTopoReq(servent, recvMsg)
+		Message.recvTopoReq(servent, clientAddress, recvMsg)
 
 	elif recvMsg[0:2] == (7).to_bytes(2, 'big'):
-		if servent.checkMessageIsNew(servent, recvMsg):
+		if servent.checkMessageIsNew(recvMsg):
 			Message.recvKeyFlood(servent, recvMsg)
 
 	elif recvMsg[0:2] == (8).to_bytes(2, 'big'):

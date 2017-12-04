@@ -1,0 +1,5 @@
+# WELL KNOWN PORT NUMBERS
+#
+tcpmux         1/udp # TCP Port Service Multiplexer
+#              Mark Lottor <MKL@nisc.sri.com>
+nbp            2/ddp # Name Binding Protocol
